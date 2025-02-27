@@ -1,0 +1,17 @@
+# CMake generated files
+_deps/
+.vscode/
+build/
+CMakeFiles/
+CMakeScripts/
+Release/
+Testing/
+Debug/
+CTestTestfile.cmake
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CMakeUserPresets.json
+CMakeLists.txt.user
+CMakeCache.txt
+Makefile
