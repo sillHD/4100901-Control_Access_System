@@ -21,9 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include "ring_buffer.h"
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
+#include "keypad.h"
 
 /* USER CODE END Includes */
 
@@ -39,7 +41,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define FW_VERSION "0.1.0"
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -47,6 +49,9 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+uint16_t keypad_colum_pressed = 0;
+uint8_t b1_press_count = 0;
+
 uint8_t pc_rx_data[32];
 ring_buffer_t pc_rx_buffer;
 
@@ -68,31 +73,47 @@ static void MX_USART3_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void door_state_machine(void)
+void system_state_machine(void)
 {
   static uint8_t state = 0;
   static uint32_t last_state_change = 0;
-  static uint8_t door_opened = 0;
 
   switch (state)
   {
     case 0: // Door closed
+      HAL_GPIO_WritePin(DOOR_GPIO_Port, DOOR_Pin, GPIO_PIN_RESET);
       break;
     case 1: // Door temporarily opened
+      HAL_GPIO_WritePin(DOOR_GPIO_Port, DOOR_Pin, GPIO_PIN_SET);
+      if (HAL_GetTick() - last_state_change > 5000) {
+        state = 0;
+      }
       break;
     case 2: // Door permanent opened
+      HAL_GPIO_WritePin(DOOR_GPIO_Port, DOOR_Pin, GPIO_PIN_SET);
       break;
     default:
       break;
   }
 }
 
+void system_events_handler(uint8_t event)
+{
+  
+}
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == B1_Pin) { // Button
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    // capture event for door state machine
+    static uint32_t last_button_press = 0;
+    if (HAL_GetTick() - last_button_press < 100) {
+      return;
+    }
+    last_button_press = HAL_GetTick();
+    b1_press_count++;
   } else { // Keypad
-
+    keypad_colum_pressed = GPIO_Pin;
   }
 }
 
@@ -107,6 +128,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   }
 }
 
+/**
+ * @brief  Heartbeat function to blink LED2 every 1 second to indicate the system is running
+*/
 void heartbeat(void)
 {
   static uint32_t last_heartbeat = 0;
@@ -115,6 +139,16 @@ void heartbeat(void)
     last_heartbeat = HAL_GetTick();
     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
   }
+}
+
+/**
+ * @brief  Retargets the C library printf function to the USART.
+*/
+int _write(int file, char *ptr, int len)
+{
+  (void)file;
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 10);
+  return len;
 }
 /* USER CODE END 0 */
 
@@ -150,13 +184,36 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data));
+  HAL_UART_Receive_IT(&huart3, keypad_rx_data, sizeof(keypad_rx_data));
+  
+  ring_buffer_init(&pc_rx_buffer, pc_rx_data, sizeof(pc_rx_data));
+  ring_buffer_init(&keypad_rx_buffer, keypad_rx_data, sizeof(keypad_rx_data));
+  ring_buffer_init(&internet_rx_buffer, internet_rx_data, sizeof(internet_rx_data));
 
+  ssd1306_Init();
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(17, 17);
+  ssd1306_WriteString(FW_VERSION, Font_11x18, White);
+  ssd1306_UpdateScreen();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  printf("Firmware version: %s\r\n", FW_VERSION);
   while (1) {
     heartbeat();
+
+    if (b1_press_count > 0) {
+      b1_press_count = 0;
+      system_events_handler(b1_press_count);
+    }
+    if (keypad_colum_pressed > 0) {
+      uint8_t key = keypad_scan(keypad_colum_pressed);
+      printf("Key pressed: %c\r\n", key);
+      system_events_handler(key);
+      keypad_colum_pressed = 0;
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -315,7 +372,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : RING_Pin */
   GPIO_InitStruct.Pin = RING_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(RING_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : DOOR_Pin LD2_Pin */
@@ -355,6 +412,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB8 PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
