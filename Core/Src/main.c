@@ -21,6 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ring_buffer.h"
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
 
 /* USER CODE END Includes */
 
@@ -44,7 +47,14 @@ UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+uint8_t pc_rx_data[32];
+ring_buffer_t pc_rx_buffer;
 
+uint8_t keypad_rx_data[32];
+ring_buffer_t keypad_rx_buffer;
+
+uint8_t internet_rx_data[32];
+ring_buffer_t internet_rx_buffer;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,7 +68,54 @@ static void MX_USART3_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void door_state_machine(void)
+{
+  static uint8_t state = 0;
+  static uint32_t last_state_change = 0;
+  static uint8_t door_opened = 0;
 
+  switch (state)
+  {
+    case 0: // Door closed
+      break;
+    case 1: // Door temporarily opened
+      break;
+    case 2: // Door permanent opened
+      break;
+    default:
+      break;
+  }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == B1_Pin) { // Button
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+  } else { // Keypad
+
+  }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2) {
+    HAL_UART_Transmit(&huart3, huart->pRxBuffPtr, huart->RxXferSize, 1000);
+    HAL_UART_Receive_IT(&huart2, huart->pRxBuffPtr, huart->RxXferSize);
+  } else if (huart->Instance == USART3) {
+    HAL_UART_Transmit(&huart2, huart->pRxBuffPtr, huart->RxXferSize, 1000);
+    HAL_UART_Receive_IT(&huart3, huart->pRxBuffPtr, huart->RxXferSize);
+  }
+}
+
+void heartbeat(void)
+{
+  static uint32_t last_heartbeat = 0;
+  if (HAL_GetTick() - last_heartbeat > 1000)
+  {
+    last_heartbeat = HAL_GetTick();
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -98,8 +155,8 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+  while (1) {
+    heartbeat();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
