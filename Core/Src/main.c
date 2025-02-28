@@ -367,6 +367,7 @@ int main(void)
   ssd1306_Fill(Black);
   ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
   ssd1306_UpdateScreen();
+  uint8_t internet_key;
   uint8_t pc_key;
   uint8_t key;
 
@@ -399,9 +400,17 @@ int main(void)
       snprintf(msg, sizeof(msg), "PC Key: %c, Buffer: %s, Size: %d\r\n", pc_key, pc_rx_data, size);
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
     }
+    if (HAL_UART_Receive(&huart3, &internet_key, 1, 10) == HAL_OK) {
+      ring_buffer_write(&internet_rx_buffer, internet_key);
+      uint8_t size = ring_buffer_size(&internet_rx_buffer);
+      char msg[45];
+      snprintf(msg, sizeof(msg), "PC Key: %c, Buffer: %s, Size: %d\r\n", internet_key, internet_rx_data, size);
+      HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
+    }
     system_events_handler(key);
     process_command(&keypad_rx_buffer, keypad_rx_data, state);
     process_command(&pc_rx_buffer, pc_rx_data, state);
+    process_command(&internet_rx_buffer, internet_rx_data, state);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -411,7 +420,7 @@ int main(void)
   /* USER CODE END 3 */
 }
 
-/**
+/** 
   * @brief System Clock Configuration
   * @retval None
   */
