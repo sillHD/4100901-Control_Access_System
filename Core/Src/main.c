@@ -68,6 +68,8 @@ ring_buffer_t keypad_rx_buffer;
 uint8_t internet_rx_data[3];
 ring_buffer_t internet_rx_buffer;
 
+extern char state[3] = "Cl";
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,33 +104,35 @@ void system_state_machine(char *states)
   switch (state)
   {
     case 0: // Door closed
-      HAL_UART_Transmit(&huart2, (uint8_t *)"Door closed\r\n", 13, 100);
+      //HAL_UART_Transmit(&huart2, (uint8_t *)"Door closed\r\n", 13, 100);
       break;
     case 1: // Door temporarily opened;
-      HAL_UART_Transmit(&huart2, (uint8_t *)"Door temporarily opened\r\n", 25, 100);
+      //HAL_UART_Transmit(&huart2, (uint8_t *)"Door temporarily opened\r\n", 25, 100);
       break;
     case 2: // Door permanent opened
-       HAL_UART_Transmit(&huart2, (uint8_t *)"Door opened\r\n", 13, 100);
+       //HAL_UART_Transmit(&huart2, (uint8_t *)"Door opened\r\n", 13, 100);
       break;
     default:
       break;
   }
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if (GPIO_Pin == B1_Pin) { // Button
-    // capture event for door state machine
-    static uint32_t last_button_press = 0;
-    if (HAL_GetTick() - last_button_press < 100) {
-      return;
-    }
-    last_button_press = HAL_GetTick();
-    b1_press_count++;
-  } else { // Keypad
-    keypad_colum_pressed = GPIO_Pin;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+if (GPIO_Pin == B1_Pin) {
+  int press_type = detect_button_press();
+  if (press_type == 1) {
+      strcpy(state, "Op");  // Clic simple
+      HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
+  } else if (press_type == 2) {
+      strcpy(state, "Cl");  // Doble clic
+      HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
+      
   }
+ }
 }
+
+
+
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -365,7 +369,6 @@ int main(void)
   ssd1306_UpdateScreen();
   uint8_t pc_key;
   uint8_t key;
-  char state[3] = "Cl";
 
   for (size_t i = 0; i < sizeof(keypad_rx_data); i++) {
     keypad_rx_data[i] = '_';
@@ -377,10 +380,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1) {
     heartbeat();
-    if (b1_press_count > 0) {
-      b1_press_count = 0;
-      system_events_handler(b1_press_count);
-    }
     if (keypad_colum_pressed != 0 && (key_pressed_tick + 5) < HAL_GetTick()) {
       key = keypad_scan(keypad_colum_pressed);
       keypad_colum_pressed = 0;
@@ -406,7 +405,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    system_state_machine(state);
+    system_state_machine((char *)state);
     HAL_Delay(100);
   }
   /* USER CODE END 3 */
