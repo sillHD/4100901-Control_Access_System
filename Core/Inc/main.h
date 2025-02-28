@@ -71,6 +71,8 @@ void Error_Handler(void);
 #define DOOR_GPIO_Port GPIOA
 #define LD2_Pin GPIO_PIN_5
 #define LD2_GPIO_Port GPIOA
+#define LD1_Pin GPIO_PIN_6
+#define LD1_GPIO_Port GPIOA
 #define COLUMN_1_Pin GPIO_PIN_10
 #define COLUMN_1_GPIO_Port GPIOB
 #define COLUMN_1_EXTI_IRQn EXTI15_10_IRQn
