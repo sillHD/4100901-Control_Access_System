@@ -121,27 +121,45 @@ void system_state_machine(char *states)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == B1_Pin) { // Botón
       int press_type = detect_button_press();
-      if (press_type == 1) {
-          strcpy(state, "Op");  // Clic simple
-          HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
-          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET); 
+      
+      if (press_type == 1) { // Un solo clic
+          if (strcmp(state, "Cl") == 0) {
+              strcpy(state, "Op");
+              HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
+              HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+              ssd1306_Fill(Black);
+              ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
+              ssd1306_UpdateScreen();
+          } else {
+              strcpy(state, "Cl");
+              HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
+              HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+              ssd1306_Fill(Black);
+              ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
+              ssd1306_UpdateScreen();
+          }
+      } else if (press_type == 2) { // Doble clic
+          strcpy(state, "To"); // Temporalmente abierta
+          HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta Temporalmente\r\n", 31, 100);
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
           ssd1306_Fill(Black);
           ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
           ssd1306_UpdateScreen();
           
-      } else if (press_type == 2) {
-          strcpy(state, "Cl");  // Doble clic
+          HAL_Delay(3000); // Mantener la puerta abierta por 3 segundos
+          
+          strcpy(state, "Cl");
           HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
-          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET); // Apaga el LED 
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
           ssd1306_Fill(Black);
           ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
           ssd1306_UpdateScreen();
-
       }
   } else { // Keypad
       keypad_colum_pressed = GPIO_Pin;
   }
 }
+
 
 
 
@@ -152,10 +170,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     HAL_UART_Transmit(&huart3, huart->pRxBuffPtr, huart->RxXferSize, 1000);
     HAL_UART_Receive_IT(&huart2, huart->pRxBuffPtr, huart->RxXferSize);
   } else if (huart->Instance == USART3) {
-    HAL_UART_Transmit(&huart2, internet_rx_data, sizeof(internet_rx_data), 1000);
-    
-    // Reiniciar la recepción para futuras comunicaciones
-    HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
+    HAL_UART_Transmit(&huart2, huart->pRxBuffPtr, huart->RxXferSize, 1000);
+    HAL_UART_Receive_IT(&huart3, huart->pRxBuffPtr, huart->RxXferSize);
   }
 }
 
@@ -185,22 +201,24 @@ int _write(int file, char *ptr, int len)
 void OLED_Printer(ring_buffer_t *rb, uint8_t *buffer, char *state)
 {
   (void)rb;
-  if(strcmp((char *)buffer, "#*0*#") == 0 )
+  if(strcmp((char *)buffer, "#D#") == 0 )
   {
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     ssd1306_Fill(Black);
-    ssd1306_SetCursor(0, 0);
-    ssd1306_WriteString("Buffer:Clean", Font_7x10, White);
-    ssd1306_SetCursor(0, 30);
-    ssd1306_WriteString("Door:Cl", Font_7x10, White);
+    ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
     ssd1306_UpdateScreen();
-    HAL_Delay(2000); 
+    
+    HAL_Delay(3000); // Mantener la puerta abierta por 3 segundos
+    
+    strcpy(state, "Cl");
+    HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     ssd1306_Fill(Black);
     ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
     ssd1306_UpdateScreen();
-    return;
   }
 
-  if (strcmp((char *)buffer, "#O#") == 0)
+  if (strcmp((char *)buffer, "#0#") == 0)
   {
     if (strcmp(state, "Op") == 0)
     {
@@ -262,19 +280,22 @@ void process_command(ring_buffer_t *rb, uint8_t *buffer, char *state) {
       buffer[3] = '\0';  // Asegura el término del string
 
       // Procesa el comando basado en su contenido
-      if (strcmp((char *)buffer, "#O#") == 0) {
-          if (strcmp(state, "Op") == 0) {
-              HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta ya esta abierta\r\n", 26, 100);
-              OLED_Printer(rb, buffer, state);
-          } else {
-              HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);  // Cambia el estado del LED
-              HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
-              OLED_Printer(rb, buffer, state);
-              strcpy(state, "Op");
-          }
-
+      if (strcmp((char *)buffer, "#D#") == 0) {
+        HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta Temporalmente\r\n", 31, 100);
+        OLED_Printer(rb, buffer, state);
+        strcpy(state, "To"); // Temporalmente abierta      
       } 
-
+      if (strcmp((char *)buffer, "#0#") == 0) {
+        if (strcmp(state, "Op") == 0) {
+            HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta ya esta abierta\r\n", 26, 100);
+            OLED_Printer(rb, buffer, state);
+        } else {
+            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);  // Cambia el estado del LED
+            HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
+            OLED_Printer(rb, buffer, state);
+            strcpy(state, "Op");
+        }
+      }
       else if (strcmp((char *)buffer, "#C#") == 0) {
           if (strcmp(state, "Cl") == 0) {
               HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta ya esta cerrada\r\n", 27, 100);
@@ -287,7 +308,7 @@ void process_command(ring_buffer_t *rb, uint8_t *buffer, char *state) {
           }
       } 
 
-      else if (strcmp((char *)buffer, "#0#") == 0) {
+      else if (strcmp((char *)buffer, "#1#") == 0) {
           HAL_UART_Transmit(&huart2, (uint8_t *)"Buffer limpiado y puerta cerrada\r\n", 38, 100);
           ring_buffer_reset(rb);
           OLED_Printer(rb, buffer, state);
@@ -619,7 +640,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, DOOR_Pin|LD2_Pin|LD1_Pin|ROW_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|LD1_Pin|ROW_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ROW_2_Pin|ROW_4_Pin|ROW_3_Pin, GPIO_PIN_RESET);
@@ -636,8 +657,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(RING_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : DOOR_Pin LD2_Pin LD1_Pin */
-  GPIO_InitStruct.Pin = DOOR_Pin|LD2_Pin|LD1_Pin;
+  /*Configure GPIO pins : LD2_Pin LD1_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin|LD1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
