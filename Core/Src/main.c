@@ -68,7 +68,8 @@ ring_buffer_t keypad_rx_buffer;
 uint8_t internet_rx_data[3];
 ring_buffer_t internet_rx_buffer;
 
-extern char state[3] = "Cl";
+extern char state[3];
+char state[3] = "Cl";
 
 /* USER CODE END PV */
 
@@ -117,18 +118,22 @@ void system_state_machine(char *states)
   }
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-if (GPIO_Pin == B1_Pin) {
-  int press_type = detect_button_press();
-  if (press_type == 1) {
-      strcpy(state, "Op");  // Clic simple
-      HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
-  } else if (press_type == 2) {
-      strcpy(state, "Cl");  // Doble clic
-      HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
-      
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  if (GPIO_Pin == B1_Pin) { // Botón
+      int press_type = detect_button_press();
+      if (press_type == 1) {
+          strcpy(state, "Op");  // Clic simple
+          HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+      } else if (press_type == 2) {
+          strcpy(state, "Cl");  // Doble clic
+          HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET); // Apaga el LED
+
+      }
+  } else { // Keypad
+      keypad_colum_pressed = GPIO_Pin;
   }
- }
 }
 
 
@@ -407,14 +412,12 @@ int main(void)
       snprintf(msg, sizeof(msg), "PC Key: %c, Buffer: %s, Size: %d\r\n", internet_key, internet_rx_data, size);
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
     }
-    system_events_handler(key);
     process_command(&keypad_rx_buffer, keypad_rx_data, state);
     process_command(&pc_rx_buffer, pc_rx_data, state);
-    process_command(&internet_rx_buffer, internet_rx_data, state);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    system_state_machine((char *)state);
+    system_state_machine(state);
     HAL_Delay(100);
   }
   /* USER CODE END 3 */
