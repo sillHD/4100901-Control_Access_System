@@ -124,11 +124,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
       if (press_type == 1) {
           strcpy(state, "Op");  // Clic simple
           HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Abierta\r\n", 17, 100);
-          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET); 
+          ssd1306_Fill(Black);
+          ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
+          ssd1306_UpdateScreen();
+          
       } else if (press_type == 2) {
           strcpy(state, "Cl");  // Doble clic
           HAL_UART_Transmit(&huart2, (uint8_t *)"Puerta Cerrada\r\n", 17, 100);
-          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET); // Apaga el LED
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET); // Apaga el LED 
+          ssd1306_Fill(Black);
+          ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
+          ssd1306_UpdateScreen();
 
       }
   } else { // Keypad
@@ -145,8 +152,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     HAL_UART_Transmit(&huart3, huart->pRxBuffPtr, huart->RxXferSize, 1000);
     HAL_UART_Receive_IT(&huart2, huart->pRxBuffPtr, huart->RxXferSize);
   } else if (huart->Instance == USART3) {
-    HAL_UART_Transmit(&huart2, huart->pRxBuffPtr, huart->RxXferSize, 1000);
-    HAL_UART_Receive_IT(&huart3, huart->pRxBuffPtr, huart->RxXferSize);
+    HAL_UART_Transmit(&huart2, internet_rx_data, sizeof(internet_rx_data), 1000);
+    
+    // Reiniciar la recepción para futuras comunicaciones
+    HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
   }
 }
 
@@ -227,7 +236,7 @@ void OLED_Printer(ring_buffer_t *rb, uint8_t *buffer, char *state)
     ssd1306_UpdateScreen();
     HAL_Delay(2000); 
     ssd1306_Fill(Black);
-    ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
+    ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
     ssd1306_UpdateScreen();
   }
   else
@@ -238,7 +247,7 @@ void OLED_Printer(ring_buffer_t *rb, uint8_t *buffer, char *state)
     ssd1306_UpdateScreen();
     HAL_Delay(2000); 
     ssd1306_Fill(Black);
-    ssd1306_DrawBitmap(0, 0, unlocked, 128, 64, White);
+    ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
     ssd1306_UpdateScreen();
   } 
  }
@@ -357,7 +366,7 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   //HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data));
-  //HAL_UART_Receive_IT(&huart3, keypad_rx_data, sizeof(keypad_rx_data));
+  HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
   
   ring_buffer_init(&pc_rx_buffer, pc_rx_data, sizeof(pc_rx_data));
   ring_buffer_init(&keypad_rx_buffer, keypad_rx_data, sizeof(keypad_rx_data));
@@ -406,18 +415,20 @@ int main(void)
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
     }
     if (HAL_UART_Receive(&huart3, &internet_key, 1, 10) == HAL_OK) {
+      HAL_UART_Transmit(&huart2, (uint8_t *)"int\r\n\0", 20, 100);  // Envía el mensaje "Hello World"
       ring_buffer_write(&internet_rx_buffer, internet_key);
       uint8_t size = ring_buffer_size(&internet_rx_buffer);
       char msg[45];
-      snprintf(msg, sizeof(msg), "PC Key: %c, Buffer: %s, Size: %d\r\n", internet_key, internet_rx_data, size);
+      snprintf(msg, sizeof(msg), "TL Key: %c, Buffer: %s, Size: %d\r\n", internet_key, internet_rx_data, size);
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
     }
     process_command(&keypad_rx_buffer, keypad_rx_data, state);
     process_command(&pc_rx_buffer, pc_rx_data, state);
+    process_command(&internet_rx_buffer, internet_rx_data, state);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    system_state_machine(state);
+    system_state_machine((char *)state);
     HAL_Delay(100);
   }
   /* USER CODE END 3 */
