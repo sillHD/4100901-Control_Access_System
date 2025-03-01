@@ -85,6 +85,11 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void low_power_sleep_mode(void) {
+  HAL_SuspendTick(); // Detener el SysTick para reducir consumo
+  HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+  HAL_ResumeTick(); // Restaurar el SysTick después de salir del Sleep Mode
+}
 
 int system_events_handler(char *event)
 {
@@ -416,6 +421,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1) {
     heartbeat();
+    
     if (keypad_colum_pressed != 0 && (key_pressed_tick + 5) < HAL_GetTick()) {
       key = keypad_scan(keypad_colum_pressed);
       keypad_colum_pressed = 0;
@@ -451,6 +457,10 @@ int main(void)
     /* USER CODE BEGIN 3 */
     system_state_machine((char *)state);
     HAL_Delay(100);
+
+    #if LOW_POWER_MODE
+      low_power_sleep_mode();
+    #endif
   }
   /* USER CODE END 3 */
 }
