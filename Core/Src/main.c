@@ -70,7 +70,12 @@ ring_buffer_t internet_rx_buffer;
 
 extern char state[3];
 char state[3] = "Cl";
+extern int control_uart2 = 0;
+extern int control_uart3 = 0;
 
+extern uint8_t internet_key;
+extern uint8_t pc_key;
+uint8_t key;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -172,13 +177,42 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == USART2) {
-    HAL_UART_Transmit(&huart3, huart->pRxBuffPtr, huart->RxXferSize, 1000);
-    HAL_UART_Receive_IT(&huart2, huart->pRxBuffPtr, huart->RxXferSize);
-  } else if (huart->Instance == USART3) {
-    HAL_UART_Transmit(&huart2, huart->pRxBuffPtr, huart->RxXferSize, 1000);
-    HAL_UART_Receive_IT(&huart3, huart->pRxBuffPtr, huart->RxXferSize);
+    pc_key = pc_rx_data[0]; // Guardar el primer byte en pc_key
+    ring_buffer_write(&pc_rx_buffer, pc_rx_data[0]); // Guardar en el buffer
+    HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data)); // Reiniciar la recepción
+    control_uart2 = 1;
+  } 
+  else if (huart->Instance == USART3) {
+    internet_key = internet_rx_data[0]; // Guardar el primer byte en internet_key
+    ring_buffer_write(&internet_rx_buffer, internet_key); // Almacenar en el ring buffer
+    HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data)); // Reiniciar la recepción
+    control_uart3 = 1;
   }
 }
+
+int main(void)
+{
+  HAL_Init();
+  SystemClock_Config();
+
+  MX_GPIO_Init();
+  MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
+  MX_I2C1_Init();
+
+  // Iniciar recepción UART2 y UART3
+  HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data));
+  HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
+
+  // Inicializar ring buffers
+  ring_buffer_init(&pc_rx_buffer, pc_rx_data, sizeof(pc_rx_data));
+  ring_buffer_init(&internet_rx_buffer, internet_rx_data, sizeof(internet_rx_data));
+
+  while (1) {
+    // Código principal
+  }
+}
+
 
 /**
  * @brief  Heartbeat function to blink LED2 every 1 second to indicate the system is running
@@ -391,13 +425,13 @@ int main(void)
   MX_USART3_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  //HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data));
-  HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
-  
   ring_buffer_init(&pc_rx_buffer, pc_rx_data, sizeof(pc_rx_data));
   ring_buffer_init(&keypad_rx_buffer, keypad_rx_data, sizeof(keypad_rx_data));
   ring_buffer_init(&internet_rx_buffer, internet_rx_data, sizeof(internet_rx_data));
   setvbuf(stdout, NULL, _IONBF, 0);  // Desactiva el buffer de stdout
+  
+  HAL_UART_Receive_IT(&huart2, pc_rx_data, sizeof(pc_rx_data));
+  HAL_UART_Receive_IT(&huart3, internet_rx_data, sizeof(internet_rx_data));
 
   keypad_init();
   HAL_UART_Transmit(&huart2, (uint8_t *)"Hello World\r\n\0", 20, 100);  // Envía el mensaje "Hello World"
@@ -407,7 +441,7 @@ int main(void)
   ssd1306_Fill(Black);
   ssd1306_DrawBitmap(0, 0, locked, 128, 64, White);
   ssd1306_UpdateScreen();
-  uint8_t internet_key;
+
   uint8_t pc_key;
   uint8_t key;
 
@@ -434,20 +468,19 @@ int main(void)
       }
       // Procesa teclas recibidas desde la PC
     }
-    if (HAL_UART_Receive(&huart2, &pc_key, 1, 10) == HAL_OK) {
-      ring_buffer_write(&pc_rx_buffer, pc_key);
+    if (control_uart2 == 1) {
       uint8_t size = ring_buffer_size(&pc_rx_buffer);
       char msg[45];
       snprintf(msg, sizeof(msg), "PC Key: %c, Buffer: %s, Size: %d\r\n", pc_key, pc_rx_data, size);
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
+      control_uart2 = 0;
     }
-    if (HAL_UART_Receive(&huart3, &internet_key, 1, 10) == HAL_OK) {
-      HAL_UART_Transmit(&huart2, (uint8_t *)"int\r\n\0", 20, 100);  // Envía el mensaje "Hello World"
-      ring_buffer_write(&internet_rx_buffer, internet_key);
+    if (control_uart3 == 1) {
       uint8_t size = ring_buffer_size(&internet_rx_buffer);
       char msg[45];
       snprintf(msg, sizeof(msg), "TL Key: %c, Buffer: %s, Size: %d\r\n", internet_key, internet_rx_data, size);
       HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 100);
+      control_uart3 = 0;
     }
     process_command(&keypad_rx_buffer, keypad_rx_data, state);
     process_command(&pc_rx_buffer, pc_rx_data, state);
